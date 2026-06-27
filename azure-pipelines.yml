@@ -1,0 +1,84 @@
+# azure-pipelines.yml
+# Same pipeline logic as Jenkinsfile — just Azure DevOps syntax
+
+trigger:
+  branches:
+    include:
+      - main
+      - feature/*        # also run on any feature branch
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  REPORT_DIR: 'test-reports'
+  TEST_ENV: 'staging'
+
+stages:
+
+- stage: Setup
+  displayName: 'Install Dependencies'
+  jobs:
+  - job: Install
+    steps:
+    - task: UsePythonVersion@0          # Microsoft's built-in Python setup task
+      inputs:
+        versionSpec: '3.11'
+      displayName: 'Use Python 3.11'
+
+    - script: pip install -r requirements.txt
+      displayName: 'Install pip packages'
+
+- stage: UnitTests
+  displayName: 'Unit Tests'
+  dependsOn: Setup
+  jobs:
+  - job: RunUnitTests
+    steps:
+    - script: |
+        mkdir -p $(REPORT_DIR)
+        pytest tests/test_unit.py \
+          --junitxml=$(REPORT_DIR)/unit-results.xml \
+          -v
+      displayName: 'Run unit tests'
+
+    - task: PublishTestResults@2        # Azure's built-in report publisher
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '$(REPORT_DIR)/unit-results.xml'
+        testRunTitle: 'Unit Tests'
+
+- stage: APITests
+  displayName: 'API Tests'
+  dependsOn: Setup                      # runs in PARALLEL with UnitTests!
+  jobs:
+  - job: RunAPITests
+    steps:
+    - script: |
+        mkdir -p $(REPORT_DIR)
+        pytest tests/test_api.py \
+          --junitxml=$(REPORT_DIR)/api-results.xml \
+          -v
+      displayName: 'Run API tests'
+
+    - task: PublishTestResults@2
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '$(REPORT_DIR)/api-results.xml'
+        testRunTitle: 'API Tests'
+
+- stage: Deploy
+  displayName: 'Deploy to Staging'
+  dependsOn:
+    - UnitTests
+    - APITests                          # waits for BOTH to finish
+  condition: succeeded()
+  jobs:
+  - job: Deploy
+    steps:
+    - script: |
+        echo "All tests passed!"
+        echo "Deploying to $(TEST_ENV)..."
+      displayName: 'Deploy'

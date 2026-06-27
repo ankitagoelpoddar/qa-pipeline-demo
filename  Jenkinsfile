@@ -1,0 +1,77 @@
+// Jenkinsfile
+// This pipeline runs whenever code is pushed to the repository
+
+pipeline {
+
+    agent any
+
+    environment {
+        REPORT_DIR = 'test-reports'
+        TEST_ENV   = 'staging'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                echo "Running on branch: ${env.BRANCH_NAME}"
+            }
+        }
+
+        stage('Setup') {
+            steps {
+                echo 'Installing dependencies...'
+                sh 'pip install -r requirements.txt'
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                echo 'Running unit tests...'
+                sh '''
+                    mkdir -p ${REPORT_DIR}
+                    pytest tests/test_unit.py \
+                        --junitxml=${REPORT_DIR}/unit-results.xml \
+                        -v
+                '''
+            }
+        }
+
+        stage('API Tests') {
+            steps {
+                echo 'Running API tests...'
+                sh '''
+                    pytest tests/test_api.py \
+                        --junitxml=${REPORT_DIR}/api-results.xml \
+                        -v
+                '''
+            }
+        }
+
+        stage('Deploy to Staging') {
+            when {
+                branch 'main'           // only deploy from main branch
+            }
+            steps {
+                echo "All tests passed! Deploying to ${env.TEST_ENV}..."
+                echo 'Deploy step would run here in a real project'
+            }
+        }
+
+    }
+
+    post {
+        always {
+            echo 'Publishing test results...'
+            junit '${REPORT_DIR}/*.xml'     // Jenkins reads your XML reports
+        }
+        success {
+            echo '✅ Pipeline passed! All tests green.'
+        }
+        failure {
+            echo '❌ Pipeline failed! Check the test results above.'
+        }
+    }
+
+}
